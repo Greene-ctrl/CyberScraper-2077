@@ -1,3 +1,12 @@
+---
+title: Scraper Hub
+emoji: 🌐
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_port: 7860
+---
+
 # 🌐 CyberScraper 2077
 
 <p align="center">

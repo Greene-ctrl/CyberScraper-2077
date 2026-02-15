@@ -78,6 +78,15 @@ class ErrorMessages:
         f"For help, see: {README_URL}#installation"
     )
 
+    BLABLADOR_API_KEY_MISSING = (
+        "Blablador API Key is missing.\n\n"
+        "Please set the BLABLADOR_API_KEY environment variable:\n"
+        "1. Create a .env file in the project root\n"
+        "2. Add: BLABLADOR_API_KEY=your_key_here\n"
+        "3. Or export it: export BLABLADOR_API_KEY=your_key_here\n\n"
+        f"For setup instructions, see: {README_URL}#installation"
+    )
+
     # Ollama errors
     OLLAMA_NOT_RUNNING = (
         "Ollama is not running or not accessible.\n\n"
@@ -187,5 +196,8 @@ def check_model_api_key(model_name: str) -> str | None:
 
     if model_name.startswith("gemini-") and not os.getenv("GOOGLE_API_KEY"):
         return ErrorMessages.GOOGLE_API_KEY_MISSING
+
+    if model_name.startswith("alias-") and not os.getenv("BLABLADOR_API_KEY"):
+        return ErrorMessages.BLABLADOR_API_KEY_MISSING
 
     return None
