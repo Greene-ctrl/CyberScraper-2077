@@ -8,7 +8,9 @@ ENV PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
     HOME=/home/user \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-    STREAMLIT_SERVER_HEADLESS=true
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_SERVER_PORT=8501 \
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -56,12 +58,11 @@ COPY requirements.txt .
 RUN uv pip install --system -r requirements.txt
 RUN uv pip install --system fastapi uvicorn
 
-# Install patchright browser
+# Install patchright browser (Chromium)
 RUN patchright install chromium
 
 # Create a non-root user
 RUN useradd -m -u 1000 user
-RUN mkdir -p /home/user/.streamlit && chown -R user:user /home/user
 
 # Configure Tor
 RUN echo "SocksPort 9050" >> /etc/tor/torrc && \
@@ -76,6 +77,9 @@ RUN mkdir -p /var/lib/tor && \
     chown -R user:user /app && \
     mkdir -p /var/log/nginx /var/lib/nginx /tmp && \
     chown -R user:user /var/log/nginx /var/lib/nginx /tmp
+
+# Pre-create streamlit config dir in home
+RUN mkdir -p /home/user/.streamlit && chown -R user:user /home/user
 
 # Copy the rest of the application
 COPY --chown=user:user . .
