@@ -192,6 +192,11 @@ def wait_for_element(url: str, selector: str, timeout: float = 10, use_persisten
     except Exception as e:
         return f"Error during wait_for_element: {str(e)}"
 
+@tool
+def task_complete(reason: str) -> str:
+    """Call this tool when you have successfully completed the task and have the final data or answer."""
+    return f"TASK COMPLETE: {reason}"
+
 def get_all_browser_tools():
     """Returns a list of all browser automation tools."""
     return [
@@ -205,5 +210,6 @@ def get_all_browser_tools():
         take_screenshot,
         get_html_source,
         get_page_info,
-        wait_for_element
+        wait_for_element,
+        task_complete
     ]

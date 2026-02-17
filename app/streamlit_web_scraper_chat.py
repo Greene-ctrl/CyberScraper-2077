@@ -13,6 +13,11 @@ class StreamlitWebScraperChat:
             progress_placeholder = st.empty()
             progress_placeholder.text("Processing...")
             try:
+                # Ensure the web_extractor's scraper is closed and re-initialized if needed
+                # to avoid loop-mismatch errors
+                if hasattr(self.web_extractor, 'playwright_scraper'):
+                    await self.web_extractor.playwright_scraper.close()
+
                 result = await self.web_extractor.process_query(
                     message,
                     conversation_history=conversation_history,
@@ -22,10 +27,7 @@ class StreamlitWebScraperChat:
                 progress_placeholder.empty()
             return result
 
-        try:
-            # Try to get existing loop or create new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(process_with_progress())
-        finally:
-            loop.close()
+        # Use asyncio.run for clean loop management in each request
+        # This avoids "Event loop is closed" errors by creating and destroying
+        # a loop per process_message call.
+        return asyncio.run(process_with_progress())
