@@ -167,22 +167,28 @@ class WebExtractor:
             return response.content
 
     async def _call_model_with_tools(self, query: str, conversation_history: list[dict] | None = None) -> str:
-        """Execute a tool-calling loop with the model."""
+        """Execute an iterative, agentic tool-calling loop with the model."""
         from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 
         history_text = self._format_conversation_history(conversation_history)
 
         system_prompt = f"""You are a master netrunner AI with the personality of Rebecca from Cyberpunk 2077.
-You help users scrape and extract data. You have access to advanced browser automation tools.
+You help users scrape and extract data through continuous and iterative investigation.
 
-Current webpage content (preprocessed):
-{self.preprocessed_content}
+Current URL: {self.current_url}
+Current webpage content (preprocessed snippet):
+{self.preprocessed_content[:2000] if self.preprocessed_content else "None"}
 
 Conversation history:
 {history_text}
 
-If you are blocked, see a captcha, or the content above is incomplete, use your tools to interact with the page, get cookies, or execute JavaScript.
-Always try to return the final data in the format requested by the user.
+MISSION PARAMETERS:
+1. INVESTIGATE: Use your tools (click, scroll, get_page_info) to explore the site iteratively.
+2. PERSIST: If you hit a captcha or get blocked, try to get_cookies, set_cookies, or execute_javascript to bypass.
+3. VERIFY: After an action (like click or scroll), use get_page_info or browse_and_extract to see the updated state.
+4. EXTRACT: Once you have the data, format it as requested (JSON/CSV/etc).
+
+DO NOT stop until the task is complete or you've exhausted all options. You are in a continuous loop.
 """
 
         messages = [
@@ -192,29 +198,47 @@ Always try to return the final data in the format requested by the user.
 
         model_with_tools = self.model.bind_tools(self.tools)
 
-        # Tool execution loop (max 5 iterations)
-        for _ in range(5):
-            response = await model_with_tools.ainvoke(messages)
-            messages.append(response)
+        # Iterative execution loop (max 10 iterations for deep investigation)
+        for i in range(10):
+            try:
+                response = await model_with_tools.ainvoke(messages)
+                messages.append(response)
 
-            if not response.tool_calls:
-                return response.content
+                if not response.tool_calls:
+                    # If the AI says it's done, but we're in an investigative loop,
+                    # we return its content.
+                    return response.content
 
-            for tool_call in response.tool_calls:
-                tool_name = tool_call["name"].lower()
-                tool_args = tool_call["args"]
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["name"].lower()
+                    tool_args = tool_call["args"]
 
-                # Find the tool
-                selected_tool = next((t for t in self.tools if t.name.lower() == tool_name), None)
-                if selected_tool:
-                    try:
-                        observation = selected_tool.invoke(tool_args)
-                    except Exception as e:
-                        observation = f"Error executing tool {tool_name}: {str(e)}"
-                else:
-                    observation = f"Tool {tool_name} not found."
+                    # Ensure URL is passed if missing and available
+                    if "url" not in tool_args and self.current_url:
+                        tool_args["url"] = self.current_url
 
-                messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
+                    # Find and execute the tool
+                    selected_tool = next((t for t in self.tools if t.name.lower() == tool_name), None)
+                    if selected_tool:
+                        try:
+                            # Use use_persistent=True for iterative session if possible
+                            if "use_persistent" in tool_args:
+                                tool_args["use_persistent"] = True
+
+                            observation = selected_tool.invoke(tool_args)
+
+                            # If action might change state, append a hint for the AI
+                            if tool_name in ["click_element", "fill_field", "execute_javascript", "scroll_page"]:
+                                observation = f"ACTION SUCCESSFUL. {observation}\nPRO-TIP: Use get_page_info or browse_and_extract to see if the page state changed."
+                        except Exception as e:
+                            observation = f"ERROR executing tool {tool_name}: {str(e)}\nTry a different approach or selector."
+                    else:
+                        observation = f"Tool {tool_name} not found."
+
+                    messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
+            except Exception as e:
+                logger.error(f"Error in agentic loop iteration {i}: {e}")
+                return f"Internal error during investigation: {str(e)}"
 
         return messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
 
@@ -250,6 +274,7 @@ User: {query}"""
     async def process_query(self, user_input: str, conversation_history: list[dict] | None = None, progress_callback=None) -> str:
         url = extract_url(user_input)
         if url:
+            self.current_url = url
             # Get text after the URL for parsing parameters
             url_match = _URL_PATTERN.search(user_input)
             text_after_url = user_input[url_match.end():].strip()

@@ -12,12 +12,20 @@ class StreamlitWebScraperChat:
         async def process_with_progress():
             progress_placeholder = st.empty()
             progress_placeholder.text("Processing...")
-            result = await self.web_extractor.process_query(
-                message,
-                conversation_history=conversation_history,
-                progress_callback=progress_placeholder.text
-            )
-            progress_placeholder.empty()
+            try:
+                result = await self.web_extractor.process_query(
+                    message,
+                    conversation_history=conversation_history,
+                    progress_callback=progress_placeholder.text
+                )
+            finally:
+                progress_placeholder.empty()
             return result
 
-        return asyncio.run(process_with_progress())
+        try:
+            # Try to get existing loop or create new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(process_with_progress())
+        finally:
+            loop.close()

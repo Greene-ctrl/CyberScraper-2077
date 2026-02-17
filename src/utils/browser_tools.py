@@ -145,6 +145,53 @@ def take_screenshot(url: str, full_page: bool = False, use_persistent: bool = Fa
     except Exception as e:
         return f"Error during take_screenshot: {str(e)}"
 
+@tool
+def get_html_source(url: str, use_persistent: bool = False) -> str:
+    """Get the full HTML source code of the current page."""
+    client = get_browser_client()
+    if not client: return "Error: Browser client unavailable."
+    try:
+        result = client.predict(
+            url=url,
+            use_persistent=use_persistent,
+            api_name="/get_html_source"
+        )
+        return str(result)
+    except Exception as e:
+        return f"Error during get_html_source: {str(e)}"
+
+@tool
+def get_page_info(url: str, use_persistent: bool = False) -> str:
+    """Get comprehensive page information including title, URL, and interactive elements."""
+    client = get_browser_client()
+    if not client: return "Error: Browser client unavailable."
+    try:
+        result = client.predict(
+            url=url,
+            use_persistent=use_persistent,
+            api_name="/get_page_info"
+        )
+        return str(result)
+    except Exception as e:
+        return f"Error during get_page_info: {str(e)}"
+
+@tool
+def wait_for_element(url: str, selector: str, timeout: float = 10, use_persistent: bool = False) -> str:
+    """Wait for an element matching the CSS selector to appear on the page."""
+    client = get_browser_client()
+    if not client: return "Error: Browser client unavailable."
+    try:
+        result = client.predict(
+            url=url,
+            selector=selector,
+            timeout=timeout,
+            use_persistent=use_persistent,
+            api_name="/wait_for_element"
+        )
+        return str(result)
+    except Exception as e:
+        return f"Error during wait_for_element: {str(e)}"
+
 def get_all_browser_tools():
     """Returns a list of all browser automation tools."""
     return [
@@ -155,5 +202,8 @@ def get_all_browser_tools():
         get_cookies,
         set_cookies,
         scroll_page,
-        take_screenshot
+        take_screenshot,
+        get_html_source,
+        get_page_info,
+        wait_for_element
     ]
