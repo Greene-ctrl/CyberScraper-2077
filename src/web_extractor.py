@@ -22,6 +22,7 @@ from .prompts import get_prompt_for_model
 from .scrapers.tor.tor_scraper import TorScraper
 from .scrapers.tor.tor_config import TorConfig
 from .scrapers.tor.exceptions import TorException
+from .utils.browser_tools import get_all_browser_tools
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ class WebExtractor:
         self.content_hash: str | None = None
         self.tor_config = tor_config or TorConfig()
         self.tor_scraper = TorScraper(self.tor_config)
+        self.tools = get_all_browser_tools()
 
     @staticmethod
     def num_tokens_from_string(string: str) -> int:
@@ -137,7 +139,12 @@ class WebExtractor:
         return history_text.strip() if history_text else "No previous conversation."
 
     async def _call_model(self, query: str, conversation_history: list[dict] | None = None) -> str:
-        """Call the model to extract information from preprocessed content."""
+        """Call the model to extract information from preprocessed content, with tool support if available."""
+
+        # Check if the model supports tool calling
+        if hasattr(self.model, "bind_tools") and not isinstance(self.model, OllamaModel):
+            return await self._call_model_with_tools(query, conversation_history)
+
         prompt_template = get_prompt_for_model(self.model_name)
 
         # Format conversation history
@@ -158,6 +165,58 @@ class WebExtractor:
                 "query": query
             })
             return response.content
+
+    async def _call_model_with_tools(self, query: str, conversation_history: list[dict] | None = None) -> str:
+        """Execute a tool-calling loop with the model."""
+        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
+
+        history_text = self._format_conversation_history(conversation_history)
+
+        system_prompt = f"""You are a master netrunner AI with the personality of Rebecca from Cyberpunk 2077.
+You help users scrape and extract data. You have access to advanced browser automation tools.
+
+Current webpage content (preprocessed):
+{self.preprocessed_content}
+
+Conversation history:
+{history_text}
+
+If you are blocked, see a captcha, or the content above is incomplete, use your tools to interact with the page, get cookies, or execute JavaScript.
+Always try to return the final data in the format requested by the user.
+"""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
+
+        model_with_tools = self.model.bind_tools(self.tools)
+
+        # Tool execution loop (max 5 iterations)
+        for _ in range(5):
+            response = await model_with_tools.ainvoke(messages)
+            messages.append(response)
+
+            if not response.tool_calls:
+                return response.content
+
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"].lower()
+                tool_args = tool_call["args"]
+
+                # Find the tool
+                selected_tool = next((t for t in self.tools if t.name.lower() == tool_name), None)
+                if selected_tool:
+                    try:
+                        observation = selected_tool.invoke(tool_args)
+                    except Exception as e:
+                        observation = f"Error executing tool {tool_name}: {str(e)}"
+                else:
+                    observation = f"Tool {tool_name} not found."
+
+                messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
+
+        return messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
 
     @staticmethod
     def _is_page_spec(value: str) -> bool:
