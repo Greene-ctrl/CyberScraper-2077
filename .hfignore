@@ -1,0 +1,9 @@
+.git/
+.github/
+venv/
+__pycache__/
+*.pyc
+.env
+chat_history.json
+test_patchright.py
+client_secret.json

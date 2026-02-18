@@ -22,6 +22,7 @@ from .prompts import get_prompt_for_model
 from .scrapers.tor.tor_scraper import TorScraper
 from .scrapers.tor.tor_config import TorConfig
 from .scrapers.tor.exceptions import TorException
+from .utils.browser_tools import get_all_browser_tools
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ class WebExtractor:
         self.content_hash: str | None = None
         self.tor_config = tor_config or TorConfig()
         self.tor_scraper = TorScraper(self.tor_config)
+        self.tools = get_all_browser_tools()
 
     @staticmethod
     def num_tokens_from_string(string: str) -> int:
@@ -136,8 +138,13 @@ class WebExtractor:
 
         return history_text.strip() if history_text else "No previous conversation."
 
-    async def _call_model(self, query: str, conversation_history: list[dict] | None = None) -> str:
-        """Call the model to extract information from preprocessed content."""
+    async def _call_model(self, query: str, conversation_history: list[dict] | None = None, progress_callback=None) -> str:
+        """Call the model to extract information from preprocessed content, with tool support if available."""
+
+        # Check if the model supports tool calling
+        if hasattr(self.model, "bind_tools") and not isinstance(self.model, OllamaModel):
+            return await self._call_model_with_tools(query, conversation_history, progress_callback=progress_callback)
+
         prompt_template = get_prompt_for_model(self.model_name)
 
         # Format conversation history
@@ -158,6 +165,96 @@ class WebExtractor:
                 "query": query
             })
             return response.content
+
+    async def _call_model_with_tools(self, query: str, conversation_history: list[dict] | None = None, progress_callback=None) -> str:
+        """Execute an iterative, agentic tool-calling loop with the model."""
+        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
+
+        history_text = self._format_conversation_history(conversation_history)
+
+        system_prompt = f"""You are a master netrunner AI with the personality of Rebecca from Cyberpunk 2077.
+You help users scrape and extract data through continuous and iterative investigation.
+
+Current URL: {self.current_url}
+Current webpage content (preprocessed snippet):
+{self.preprocessed_content[:2000] if self.preprocessed_content else "None"}
+
+Conversation history:
+{history_text}
+
+MISSION PARAMETERS:
+1. INVESTIGATE: Use your tools (click, scroll, get_page_info, wait_for_element) to explore the site iteratively.
+2. PERSIST: If you hit a captcha or get blocked, try to get_cookies, set_cookies, or execute_javascript to bypass.
+3. VERIFY & REFLECT: After every action, check the new state. If an action failed or didn't yield the expected result, REFLECT on why and ADAPT your strategy.
+4. EXTRACT: Once you have the data, format it as requested.
+5. CONCLUDE: You MUST call the `task_complete` tool when you have the final answer or data.
+
+CRITICAL: Before every tool call, provide a brief "THOUGHT" on what you've learned so far and why you are taking the next step. If you encounter an error, analyze it and try a different selector or approach.
+DO NOT stop until you call `task_complete`. You are a persistent autonomous agent.
+"""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
+
+        model_with_tools = self.model.bind_tools(self.tools)
+
+        # Iterative execution loop (max 12 iterations for autonomous behavior)
+        for i in range(12):
+            try:
+                if progress_callback:
+                    progress_callback(f"Rebecca is thinking (iteration {i+1}/12)...")
+
+                response = await model_with_tools.ainvoke(messages)
+                messages.append(response)
+
+                if not response.tool_calls:
+                    # If the AI says it's done but didn't call task_complete,
+                    # we nudge it or accept if it looks like a final answer.
+                    if "TASK COMPLETE" in response.content or len(response.content) > 50:
+                        return response.content
+
+                    messages.append(HumanMessage(content="You haven't called `task_complete` yet. Are you done? If not, continue investigating. If yes, call `task_complete` with your summary."))
+                    continue
+
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["name"].lower()
+                    tool_args = tool_call["args"]
+
+                    # Ensure URL is passed if missing and available
+                    if "url" not in tool_args and self.current_url:
+                        tool_args["url"] = self.current_url
+
+                    # Find and execute the tool
+                    selected_tool = next((t for t in self.tools if t.name.lower() == tool_name), None)
+                    if selected_tool:
+                        if progress_callback:
+                            progress_callback(f"Executing {tool_name}...")
+                        try:
+                            # Use use_persistent=True for iterative session if possible
+                            if "use_persistent" in tool_args:
+                                tool_args["use_persistent"] = True
+
+                            observation = selected_tool.invoke(tool_args)
+
+                            if tool_name == "task_complete":
+                                return response.content if response.content else str(observation)
+
+                            # If action might change state, append a hint for the AI
+                            if tool_name in ["click_element", "fill_field", "execute_javascript", "scroll_page"]:
+                                observation = f"ACTION SUCCESSFUL. {observation}\nPRO-TIP: Use get_page_info or browse_and_extract to see if the page state changed."
+                        except Exception as e:
+                            observation = f"ERROR executing tool {tool_name}: {str(e)}\nTry a different approach or selector."
+                    else:
+                        observation = f"Tool {tool_name} not found."
+
+                    messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
+            except Exception as e:
+                logger.error(f"Error in agentic loop iteration {i}: {e}", exc_info=True)
+                return f"Error in agentic loop (iteration {i}): {str(e)}"
+
+        return messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
 
     @staticmethod
     def _is_page_spec(value: str) -> bool:
@@ -191,6 +288,7 @@ User: {query}"""
     async def process_query(self, user_input: str, conversation_history: list[dict] | None = None, progress_callback=None) -> str:
         url = extract_url(user_input)
         if url:
+            self.current_url = url
             # Get text after the URL for parsing parameters
             url_match = _URL_PATTERN.search(user_input)
             text_after_url = user_input[url_match.end():].strip()
@@ -204,9 +302,21 @@ User: {query}"""
             website_name = get_website_name(url)
 
             if progress_callback:
-                progress_callback(f"Fetching content from {website_name}...")
+                progress_callback(f"Fetching initial content from {website_name}...")
 
-            response = await self._fetch_url(url, pages, url_pattern, handle_captcha, progress_callback)
+            # Initial fetch to get the ball rolling
+            fetch_response = await self._fetch_url(url, pages, url_pattern, handle_captcha, progress_callback)
+
+            if self.current_content:
+                # If fetch worked, immediately start the agentic extraction/investigation
+                if progress_callback:
+                    progress_callback(f"Investigating {website_name} autonomously...")
+
+                # We use the original user input as the mission
+                response = await self._extract_info(user_input, conversation_history, progress_callback=progress_callback)
+            else:
+                # If fetch failed, return the error from fetch
+                response = fetch_response
         elif not self.current_content:
             # No URL yet - let LLM chat naturally
             if progress_callback:
@@ -301,7 +411,7 @@ User: {query}"""
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         return '\n'.join(chunk for chunk in chunks if chunk)
 
-    async def _extract_info(self, query: str, conversation_history: list[dict] | None = None) -> str:
+    async def _extract_info(self, query: str, conversation_history: list[dict] | None = None, progress_callback=None) -> str:
         if not self.preprocessed_content:
             return await self._chat_without_content(query, conversation_history)
 
@@ -326,7 +436,7 @@ User: {query}"""
         content_tokens = self.num_tokens_from_string(self.preprocessed_content)
 
         if content_tokens <= self.max_tokens - 1000:
-            extracted_data = await self._call_model(query, conversation_history)
+            extracted_data = await self._call_model(query, conversation_history, progress_callback=progress_callback)
         else:
             chunks = self.optimized_text_splitter(self.preprocessed_content)
             # Store original content, process chunks, restore
@@ -334,7 +444,7 @@ User: {query}"""
             all_extracted_data = []
             for chunk in chunks:
                 self.preprocessed_content = chunk
-                chunk_data = await self._call_model(query, conversation_history)
+                chunk_data = await self._call_model(query, conversation_history, progress_callback=progress_callback)
                 all_extracted_data.append(chunk_data)
             self.preprocessed_content = original_content
             extracted_data = self._merge_json_chunks(all_extracted_data)

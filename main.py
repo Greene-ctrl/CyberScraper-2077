@@ -241,6 +241,11 @@ def check_service_status() -> dict:
             "configured": bool(os.getenv("GOOGLE_API_KEY")),
             "env_var": "GOOGLE_API_KEY"
         },
+        "blablador": {
+            "name": "Blablador",
+            "configured": bool(os.getenv("BLABLADOR_API_KEY")),
+            "env_var": "BLABLADOR_API_KEY"
+        },
         "tor": {
             "name": "Tor",
             "configured": False,  # Will be checked dynamically
@@ -442,7 +447,7 @@ def main():
             st.session_state.current_chat_id = new_chat_id
             save_chat_history(st.session_state.chat_history)
     if 'selected_model' not in st.session_state:
-        st.session_state.selected_model = "gpt-4.1-mini"
+        st.session_state.selected_model = "alias-fast"
     if 'web_scraper_chat' not in st.session_state:
         st.session_state.web_scraper_chat = None
 
@@ -451,7 +456,7 @@ def main():
 
         # Model selection
         st.subheader("Select Model")
-        default_models = ["gpt-4.1-mini", "gpt-4o-mini", "gemini-1.5-flash", "gemini-pro"]
+        default_models = ["alias-fast", "alias-large", "gpt-4o-mini", "gemini-1.5-flash"]
         ollama_models = st.session_state.get('ollama_models', [])
         all_models = default_models + [f"ollama:{model}" for model in ollama_models]
         selected_model = st.selectbox("Choose a model", all_models, index=all_models.index(st.session_state.selected_model) if st.session_state.selected_model in all_models else 0)

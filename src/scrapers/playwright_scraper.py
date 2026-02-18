@@ -27,10 +27,15 @@ def _get_browser_channel():
     """Get browser channel based on platform. Chrome not available on ARM64 Linux."""
     system = platform.system().lower()
     machine = platform.machine().lower()
-    # Chrome is not available for Linux ARM64 (e.g., Docker on Apple Silicon)
-    if system == "linux" and machine in ("aarch64", "arm64"):
-        return None  # Use default chromium
-    return "chrome"  # Use Chrome for better stealth on x86/macOS/Windows
+
+    # In Docker/Linux, we often prefer the installed chromium
+    if system == "linux":
+        # Check if chrome actually exists
+        if os.path.exists("/usr/bin/google-chrome") or os.path.exists("/opt/google/chrome/chrome"):
+            return "chrome"
+        return None  # Fallback to chromium
+
+    return "chrome"  # Use Chrome for better stealth on macOS/Windows
 
 
 class ScraperConfig:

@@ -39,3 +39,6 @@ google-api-python-client==2.188.0
 
 # Tor support
 PySocks==1.7.1
+
+# Browser-Use API
+gradio_client

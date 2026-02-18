@@ -38,5 +38,12 @@ class Models:
                 return OpenAI(model_name=model_name, **kwargs)
             case name if name.startswith("gemini-"):
                 return ChatGoogleGenerativeAI(model=model_name, **kwargs)
+            case "alias-large" | "alias-fast":
+                return ChatOpenAI(
+                    model=model_name,
+                    api_key=os.getenv("BLABLADOR_API_KEY"),
+                    base_url="https://api.helmholtz-blablador.fz-juelich.de/v1",
+                    **kwargs
+                )
             case _:
                 raise ValueError(f"Unsupported model: {model_name}")
