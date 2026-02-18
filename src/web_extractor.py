@@ -185,10 +185,11 @@ Conversation history:
 MISSION PARAMETERS:
 1. INVESTIGATE: Use your tools (click, scroll, get_page_info, wait_for_element) to explore the site iteratively.
 2. PERSIST: If you hit a captcha or get blocked, try to get_cookies, set_cookies, or execute_javascript to bypass.
-3. VERIFY: After an action, always check the new state of the page.
+3. VERIFY & REFLECT: After every action, check the new state. If an action failed or didn't yield the expected result, REFLECT on why and ADAPT your strategy.
 4. EXTRACT: Once you have the data, format it as requested.
 5. CONCLUDE: You MUST call the `task_complete` tool when you have the final answer or data.
 
+CRITICAL: Before every tool call, provide a brief "THOUGHT" on what you've learned so far and why you are taking the next step. If you encounter an error, analyze it and try a different selector or approach.
 DO NOT stop until you call `task_complete`. You are a persistent autonomous agent.
 """
 

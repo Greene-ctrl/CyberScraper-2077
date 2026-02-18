@@ -197,6 +197,12 @@ def task_complete(reason: str) -> str:
     """Call this tool when you have successfully completed the task and have the final data or answer."""
     return f"TASK COMPLETE: {reason}"
 
+@tool
+def agent_reflection(thought: str, adaptation_plan: str) -> str:
+    """Call this tool to reflect on your progress, especially after an error or unexpected result.
+    Explain what you've learned and how you're adapting your strategy."""
+    return f"REFLECTION: {thought}\nADAPTATION PLAN: {adaptation_plan}"
+
 def get_all_browser_tools():
     """Returns a list of all browser automation tools."""
     return [
@@ -211,5 +217,6 @@ def get_all_browser_tools():
         get_html_source,
         get_page_info,
         wait_for_element,
-        task_complete
+        task_complete,
+        agent_reflection
     ]
