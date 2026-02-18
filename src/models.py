@@ -40,9 +40,9 @@ class Models:
                 return ChatGoogleGenerativeAI(model=model_name, **kwargs)
             case "alias-large" | "alias-fast":
                 return ChatOpenAI(
-                    model_name=model_name,
-                    openai_api_key=os.getenv("BLABLADOR_API_KEY"),
-                    openai_api_base="https://api.helmholtz-blablador.fz-juelich.de/v1",
+                    model=model_name,
+                    api_key=os.getenv("BLABLADOR_API_KEY"),
+                    base_url="https://api.helmholtz-blablador.fz-juelich.de/v1",
                     **kwargs
                 )
             case _:

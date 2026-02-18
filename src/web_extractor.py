@@ -251,8 +251,8 @@ DO NOT stop until you call `task_complete`. You are a persistent autonomous agen
 
                     messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
             except Exception as e:
-                logger.error(f"Error in agentic loop iteration {i}: {e}")
-                return f"Internal error during investigation: {str(e)}"
+                logger.error(f"Error in agentic loop iteration {i}: {e}", exc_info=True)
+                return f"Error in agentic loop (iteration {i}): {str(e)}"
 
         return messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
 
